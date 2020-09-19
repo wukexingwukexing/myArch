@@ -1,0 +1,132 @@
+1.预安装
+  按下e键，可以进行预安装的编辑
+  1.1调整屏幕分辨率
+   nomodeset video=800*450 
+  1.2调整字体
+    setfont /usr/share/kbd/consolefont/LatGrkCyt-12x22.psfu.gz
+  1.3配置vimrc(可选)
+2.安装
+  2.1连接网络(wifi)
+    2.1.1查看网络设备
+      ip link
+      (假设返回的设备名为wl_xxx) 
+    2.1.2启动网络设备
+      ip link set wl_xxx up
+    2.1.3寻找wifi
+      iwlist wl_xxx scan | grep ESSID
+      (假设返回的wifi名称为wifi_yyy,密码为xyz)
+    2.1.4生成网络配置文件
+      wpa_passphrase wifi_yyy xyz > 文件名
+      ("文件名"是可以随意命名的，我这里命名为internet.conf)
+    2.1.5使用网络配置文件连接wifi
+      wpa_supplicant -c internet.conf -i wl_xxx
+      (-c 后面是网络配置文件，-i后面是设备文件名)
+    2.1.6分配ip地址
+      dhcpcd
+    2.1.7测试网络是否已经连接(可选)
+      ping 某个网站
+  2.2同步时间
+    timedatectl set-up true
+  2.3分区
+    2.3.1查看硬盘设备文件名
+      fdisk -l
+      (假设硬盘设备文件名为/dev/zzz)
+    2.3.2进入硬盘设备，对硬盘分区
+      fdisk /dev/zzz
+        -m 显示帮助
+        -p 显示硬盘分区
+        -g 创建GPT分区列表，用于清除原有分区
+          (只有电脑支持UEFI才能使用GPT分区，否则只能创建MBR分区)
+          GPT分区列表有3个挂载点：
+           /mnt/boot  建议为512M，该挂载点为EFI系统分区
+           /mnt       建议使用剩余的硬盘空间,该挂载点就是root(/)
+           [swap]     建议大于512M，同时小于2G，该挂载点为swap交换分区
+        -n 创建新的分区(就是创建3个挂载点对应的分区)
+           假设创建的分区如下(用p查看)：
+            /dev/zzz1   512M
+            /dev/zzz2   1G
+            /dev/zzz3   剩余的空间
+        -w 保存分区
+  2.4格式化(写入文件系统)
+    2.4.1对EFI引导分区写入FAT文件系统
+      mkfs.fat -F32 /dev/zzz1
+    2.4.2对交换分区写入swap文件系统，然后打开swap
+      mkswap /dev/zzz2
+      swapon /dev/zzz2
+    2.4.3对主分区写入ext4文件系统(也可以写入xfs等其他文件系统)
+      mkfs.ext4 /dev/zzz3
+  2.5配置Arch软件安装管理程序pacman
+    vim /etc/pacman.conf
+      使用vim录制宏，然后将与中国有关的安装源放在其他安装源之前
+      -将color前面的#去掉，这样就可以在安装时显示不同颜色
+      -找到[community]下记载的路径/etc/pacman.d/mirrorlist
+      -然后按gf进入，录制宏
+  2.6使用pacstrap脚本安装Arch系统
+    2.6.1将目录挂载至不同的设备文件名
+      mount /dev/zzz3 /mnt        (挂载主分区)
+      mkdir /mnt/boot             (创建引导分区目录)
+      mount /dev/zzz1 /mnt/boot   (挂载引导分区)
+    2.6.2安装Arch系统
+      pacstrap /mnt base linux linux-firmware
+      (base,linux,linux-firmware都是需要安装的软件包)
+    2.6.3生成fstab(文件系统目录)
+      genfstab -U /mnt >> /mnt/etc/fstab
+      (fstab用于启动时自动挂载)
+3.Arch系统后续配置
+  3.1进入Arch系统
+    arch-chroot /mnt
+    (在进入前，为root@archiso ~；进入后，为[root@archiso /])
+  3.2设置本地时区
+    ln -sf /usr/share/zoneinfo/Asia/Shanghai /etc/localtime
+  3.3同步时间
+    hwclock --systohc
+  3.4本地化设置
+    exit 
+         退出Arch系统，因为系统中还没有VIM编辑器
+         需要到安装盘中改配置文件
+         退出后，变成root@archiso ~
+    vim /mnt/etc/locale.gen
+         去掉en_US.UTF-8前面的#，这样设置本地化语言为美式英语
+    arch-chroot /mnt
+         进入Arch系统，变成[root@archiso /]
+    locale-gen
+         生成本地化语言
+    exit
+        退出Arch系统
+    vim /mnt/etc/locale.conf
+       输入LANG=en_US.UTF-8，并保存    
+  3.5改键盘(可选)
+    在安装盘环境中(root@archiso ~)vim进入/mnt/etc/vconsole.conf
+    keycode 1 = Caps_Lock
+    keycode 58 = Escape
+  3.6改主机名
+    在安装盘环境中(root@archiso ~)vim进入/mnt/etc/hostname
+    输入想要的主机名，如wkx
+  3.7改本地回环地址
+    在安装盘环境中(root@archiso ~)vim进入/mnt/etc/hosts
+      127.0.0.1     localhost
+      ::1           localhost
+      127.0.0.1     wkx.localdomain  wkx
+  3.8设置root密码
+    arch-chroot /mnt  (进入Arch系统)
+    passwd            (输入root密码)
+    exit              (退出系统)
+  3.9安装系统引导程序(可选，用于多系统下的系统引导)
+    arch-chroot /mnt
+    pacman -S grub efibootmgr intel-ucode os-prober
+    (如果是APU则是amd-ucode，这些用于更新cpu驱动)
+    mkdir /boot/grub
+    grub-mkconfig > /boot/grub/grub.cfg   (生成引导配置)
+    uname -m  (查看系统架构,假设本机架构为x86_64)
+    grub-install --target=x86_64-efi --efi-directory=/boot
+4.安装必要的系统工具
+  pacman -S vim zsh wpa_supplicant dhcpcd
+  (安装vim和zsh，这一步可以提前，这样就不需要频繁切换了) 
+5.重启系统
+  exit  (进入到root@archios ~) 
+  killall wpa_supplicant dhcpcd 
+  reboot
+
+
+
+
